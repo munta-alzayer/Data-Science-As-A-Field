@@ -1,0 +1,157 @@
+---
+title: "NewYork_Incidents_Project1"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+# Introduction
+I am going to be walking through the steps provided in Week 3 of the Data Science as a Field course. The assignment is to reproduce a few steps in which data scientists gather data from reputable sources, clean that data and transform for them to use during their analysis, and finally to run analysis and identify possible biases during their work. This was a fun assignment and I took a few approaches to get the most out of it. 
+
+## First: Read the data in and transform the data
+
+I started by inputting the data into a variable `NYPD_data`.
+```{r input}
+library(readr)
+library(lubridate)
+library(tidyverse)
+url_in <- "https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD"
+NYPD_data <- read_csv(url_in)
+
+```
+
+This is the data before the cleanup, a summary gives you an idea of the current values, and the datatypes.
+```{r before_cleanup}
+summary(NYPD_data)
+```
+
+### Data cleanup
+I cleaned up the data in a few steps. First I changed the data type of the occurrence date. I also could have changed the variable need for ease of use, but chose not to during this assignment. 
+```{r change_datetime}
+NYPD_data$OCCUR_DATE <- mdy(NYPD_data$OCCUR_DATE)
+summary(NYPD_data)
+```
+
+I removed a few columns to keep the necessary information on hand. There are a few other columns I could have removed but chose to remove them at the grouping phase, as analysis could have been run on things like: Age groups, race, and sex of the perp and victim. 
+```{r remove_cols}
+NYPD_data <- NYPD_data %>% select(-c(Latitude, Longitude, X_COORD_CD, Y_COORD_CD, Lon_Lat))
+
+```
+## Second: Start grouping the data for analysis 
+I grouped the data in multiple ways to have some insight into the effects of location, and time of year. 
+### By Borough and Precinct
+First we need to group it based on the geographical location of the incidents. Based on the data provided, I grouped them based on the borough it occurred, and the precinct that would have reacted to it. 
+```{r vis1}
+NYPD_data_grouped_byPRECANDBORO <- NYPD_data %>% group_by(BORO, PRECINCT) %>% 
+  summarise(count=n()) %>% select(everything()) %>% ungroup()
+NYPD_data_grouped_byPRECANDBORO
+
+```
+
+For the visualization, I chose to exclude the precinct in the chart as it would have added unnecessary clutter. Based on the data provided, below is a visualization of all incidents in the years 2006-2020 put into a bar chart based on the borough. 
+
+```{r ByBoroChart}
+NYPD_data_grouped_byBORO <- NYPD_data %>% group_by(BORO) %>% 
+  summarise(total=n()) %>% select(everything()) %>% ungroup()
+
+NYPD_data_grouped_byBORO %>% ggplot(aes(factor(BORO), y=total, fill=BORO)) + geom_bar(stat="identity") + scale_fill_brewer(palette="Set1") + scale_y_log10() + theme(legend.position="bottom") + labs(title = "NYPD Incidents per Boro (2006 - 2020)", y = "Incidents", x = "Boro")
+```
+Based on the visuals, there doesn't seem to be a connection between location and incidents, but there are some boroughs that have less crime compared to others. We can also break it down into precincts to see which exact neighborhoods provide the best and worst safety for its inhabitants. 
+
+### By date 
+Breaking down the data and viewing it based on the date it occurred will help us see the increase of crime over time. I first started by grouping it based on the date: `dd-mm-yy`
+```{r vis2}
+NYPD_data_grouped_bydate <- NYPD_data %>% group_by(OCCUR_DATE) %>% summarise(total=n()) %>% select(everything()) %>% ungroup()
+NYPD_data_grouped_bydate
+```
+But that gives us too many rows, so if we want to make it by month we do:
+
+```{r monthly}
+NYPD_data_grouped_monthly <- NYPD_data %>% 
+  mutate(month = month(OCCUR_DATE, label=TRUE), year= year(OCCUR_DATE)) %>% group_by(month, year) %>% 
+  summarise(total=n()) %>% select(everything()) %>% ungroup() %>% arrange(year)
+NYPD_data_grouped_monthly
+```
+This provides us with the below chart, which shows the years 2006-2020 all on the same chart, and shows that the incident rates have been fluctuating over time with the peak being in July of 2020.
+
+
+```{r monthylChart}
+NYPD_data_grouped_monthly %>% ggplot(aes(x = month, y=total, group=factor(year))) + geom_line(aes(color=factor(year))) + geom_point(aes(color=factor(year))) + geom_line(aes(y = total, color = factor(year))) + geom_point(aes(y = total, color=factor(year))) + scale_y_log10() + theme(legend.position="bottom", axis.text.x = element_text(angle = 90)) + labs(title = "NYPD Incidents Monthly (2006 - 2020)", y = NULL)
+```
+
+To get a yearly overview I then grouped them based on the year of the incident.
+```{r yearly}
+NYPD_data_grouped_yearly <- NYPD_data %>% 
+  mutate(year= format(OCCUR_DATE, "%y")) %>% group_by(year) %>% 
+  summarise(total=n()) %>% select(everything()) %>% ungroup()
+NYPD_data_grouped_yearly
+```
+With the following chart as the result
+```{r yearly chart}
+NYPD_data_grouped_yearly %>% ggplot(aes(x = year, y=total, group=1)) + 
+geom_line(aes(color="Incidents")) + geom_point(aes(color="Incidents")) + scale_y_log10() + theme(legend.position="bottom", axis.text.x = element_text(angle = 90)) + labs(title = "NYPD Incidents (Yearly)", y = NULL) +  geom_hline(aes(yintercept = mean(total)), color="blue")
+```
+The blue line is an average of the yearly totals, and shows that between 2006 and 2012 the number of incidents were above the average over 14 years. We can also see that there is a steep rise in incidents in the year 2020, but there could be a correlation between the introduction of stay-at-home orders and the rise in incidents. 
+
+## Analysis
+
+To go deeper into the data, we can import another dataset provided by <https://data.gov>. This dataset has the population amount for the City of New York based on the Borough, and it can be used to analyze the data further. 
+
+```{r New Dataset, NYC Pop}
+nyc_pop <- read_csv("https://data.cityofnewyork.us/api/views/97pn-acdf/rows.csv?accessType=DOWNLOAD")
+nyc_pop
+```
+
+The dataset is broken down into ages so we can create first group the dataset to make it easier to work with.
+
+```{r Grouping}
+NYC_pop_grouped <- nyc_pop %>% group_by(Borough) %>% summarise() %>% ungroup()
+NYC_pop_grouped
+agg_2010 <- aggregate(x = nyc_pop$"2010", by = list(nyc_pop$Borough), FUN=sum)
+agg_2010
+agg_2010 <- agg_2010 %>% rename(Borough = Group.1, "2010" = x)
+
+agg_2015 <- aggregate(x = nyc_pop$"2015", by = list(nyc_pop$Borough), FUN=sum)
+agg_2015
+agg_2015 <- agg_2015 %>% rename(Borough = Group.1, "2015" = x)
+
+agg_2020 <- aggregate(x = nyc_pop$"2020", by = list(nyc_pop$Borough), FUN=sum)
+agg_2020
+agg_2020 <- agg_2020 %>% rename(Borough = Group.1, "2020" = x)
+
+nyc_pop_grouped <- merge( x = agg_2010, y=NYC_pop_grouped, all.Borough=True)
+nyc_pop_grouped <- merge( x = agg_2015, y=nyc_pop_grouped, all.Borough=True)
+nyc_pop_grouped <- merge( x = agg_2020, y=nyc_pop_grouped, all.Borough=True)
+
+nyc_pop_grouped <- nyc_pop_grouped[- grep("NYC Total", nyc_pop_grouped$Borough),]
+nyc_pop_grouped
+```
+
+```{r model}
+Bronxpop <- nyc_pop_grouped %>% filter(Borough == "Bronx")
+Bronxpop
+Bronxpop <- Bronxpop[1,2]
+Bronxpop
+
+BronxInc <- NYPD_data_grouped_byBORO %>% filter(BORO == "BRONX")
+BronxInc <- as.vector(BronxInc$total[1])
+BronxInc
+
+mod <- lm(BronxInc ~ Bronxpop)
+summary(mod)
+```
+I attempted at making a model here but unfortunately it did not work. I needed to combine the population data frame into the NYPD incident data frame. Then make a model that attempts to draw a connection between population density and the number of incidents in that borough. Unfortunately, this was not explained enough at this stage of the program for me to go deeper into my development. I hope that this does not hurt my grades. 
+
+## Conclusion
+Further analysis can be done when it relates to the data of NYC to pinpoint the exact locations of the incidents, create a heatmap of the city based on the occurrences and provide better insight into the number of incidents related to the number of population in each area. I believe that this has correlation between the two, but that is based on my biases. 
+
+
+I believe that the bias that the data may have is based on the reporting of the incidents. Based on my analysis, the biases that may have occurred are:
+* The push to find a correlation between area and number of incidents, despite there being no obvious correlation in the data
+* How I grouped the data, as my need to avoid a clutter in the graph led me to make it based on borough and not on precinct. We may see more information when we break it down further than I have, and my personal bias has stopped me from going deeper into detail
+* and, as mentioned above, the larger bubble of bias is outside of my power as a data analyst. The data that is provided to me from sources such as <https://data.gov> is reported by local precincts, and that has an effect on the collection of the data as it requires each and every member of those precincts to provide that data without their personal bias affecting them. 
+
+Overall, this assignment gives great insight into the process of reproducing analysis and insight into how to do so. Peer reviewed work will help to mitigate the interference of personal bias in the workplace, and on data that may have an effect on other peoples actions.
