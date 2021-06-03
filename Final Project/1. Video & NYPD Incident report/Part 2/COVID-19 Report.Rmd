@@ -1,0 +1,720 @@
+---
+title: "European Union COVID-19 Report"
+author: "Muntadhar AlZayer"
+output: html_document
+---
+
+
+## EU COVID-19 report
+I decided to work on the COVID-19 data for specific countries that have data with the European Center for Disease Control on their responses. I will clean the data, analyze it in relation to the stay at home orders, and model it to find correlation.
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.width=10, fig.height=6)
+```
+```{r libraries, include=FALSE}
+library(readr)
+library(lubridate)
+library(tidyverse)
+```
+## Read in data 
+I used data provided by our professor during the course, and I inputted a dataset that gave the precaution responses during the pandemic by a few countries within the EU. 
+```{r get_data, message=FALSE}
+url_in <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/"
+global_conf <- read_csv(str_c(url_in, "time_series_covid19_confirmed_global.csv"))
+global_deaths <- read_csv(str_c(url_in,"time_series_covid19_deaths_global.csv"))
+global_recovered <- read_csv(str_c(url_in, "time_series_covid19_recovered_global.csv"))
+
+eu_url <- "https://www.ecdc.europa.eu/sites/default/files/documents/response_graphs_data_2021-05-26.csv"
+eu_resp <- read_csv(eu_url)
+
+uid_lookup_url <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/UID_ISO_FIPS_LookUp_Table.csv"
+uid <- read_csv(uid_lookup_url)
+```
+
+
+
+```{r tidy_data}
+global_conf <- global_conf %>% pivot_longer(cols=-c(`Province/State`, `Country/Region`, Lat, Long), names_to = "date", values_to = "cases") %>% select(-c(Lat, Long))
+
+global_deaths <- global_deaths %>% pivot_longer(cols=-c(`Province/State`, `Country/Region`, Lat, Long), names_to = "date", values_to = "deaths") %>% select(-c(Lat, Long))
+
+global <- global_conf %>% full_join(global_deaths) %>% rename(Country_Region = `Country/Region`, Province_State = `Province/State`) %>% mutate(date = mdy(date))
+global <- global %>% filter(cases > 0)
+
+global_recovered <- global_recovered %>% pivot_longer(cols=-c(`Province/State`, `Country/Region`, Lat, Long), names_to = "date", values_to = "recovered") %>% select(-c(Lat, Long))
+global_recovered <- global_recovered %>% rename(Country_Region = `Country/Region`,Province_State = `Province/State`) %>% mutate(date = mdy(date))
+global <- global %>% full_join(global_recovered)
+global <- global %>% filter(cases > 0)
+global
+```
+## Global data tidying
+Here I tidy up the data and use the UID to extract the population of each country. There is no continous data on population amount, just a maximum. 
+```{r global_pop, message=FALSE}
+global <- global %>% unite("Combined_Key", c("Province_State", "Country_Region"), sep = ", ", na.rm = TRUE, remove = FALSE)
+
+
+global <- global %>%
+  left_join(uid, by=c("Province_State", "Country_Region", "Combined_Key")) %>%
+  select(-c(UID,FIPS))
+
+```
+
+
+## EU Tidying data and joining
+I wanted to have only the countries that have data on their stay at home orders, so I chose only that response from the EU dataset. I then joined the global dataset 
+```{r tidy}
+eu <- eu_resp %>% filter(Response_measure=="StayHomeOrder")
+```
+
+I then removed all the NA values from the end of the precaution dates, and set them to todays date. I also took all the rows that correspond to countries within the precautions dataset from the global continous data provided from John Hopkins database. 
+
+```{r tidy2}
+eu[is.na(eu$date_end), "date_end"] = as.Date(today())
+                                                          #%>% merge(x=global, y=eu_resp, by.x="Country_Region", by.y="Country")
+eu_covid <- global[global$Country_Region %in% eu$Country,]
+
+eu_covid <- eu_covid %>% select(-c(iso2, iso3, code3, Admin2))
+
+```
+
+### All of Europe 
+I first started by analyzing and visualizing the data for all the countries. This is a graph with the cumulative of: cases, deaths and recoveries. 
+```{r EUTotals, warning=FALSE}
+EU_cntries_ttl <- eu_covid %>% group_by(date) %>% summarize(recovered = sum(recovered), cases=sum(cases), deaths=sum(deaths), Population=sum(Population)) %>% select(date, cases, deaths, recovered, Population) %>% ungroup()
+EU_cntries_ttl
+
+EU_cntries_ttl %>% filter(cases>0) %>%
+  ggplot(aes(x=date, y=cases)) +
+  geom_line(aes(color="cases"))+
+  geom_point(aes(color="cases"))+
+  geom_line(aes(y=deaths, color="deaths"))+
+  geom_point(aes(y=deaths, color="deaths"))+
+  geom_line(aes(y=recovered, color="recovered"))+
+  geom_point(aes(y=recovered, color="recovered"))+
+  scale_y_log10()+theme(legend.position="bottom", axis.text.x=element_text(angle=90))+
+  labs(title=str_c("COVID19 in EU"), y=NULL)
+
+```
+
+## Per Country Visualizations {.tabset}
+Here we can see the curves of deaths and cases for a few countries in EU that are registered with the ECDC. 
+
+
+### Austria
+```{r Austria, warning=FALSE}
+cntry <- "Austria"
+eu_covid %>% filter(Country_Region == cntry) %>% filter(cases>0) %>%
+  ggplot(aes(x=date, y=cases)) +
+  geom_line(aes(color="cases"))+
+  geom_point(aes(color="cases"))+
+  geom_line(aes(y=deaths, color="deaths"))+
+  geom_point(aes(y=deaths, color="deaths"))+
+  geom_line(aes(y=recovered, color="recovered"))+
+  geom_point(aes(y=recovered, color="recovered"))+
+  scale_y_log10()+theme(legend.position="bottom", axis.text.x=element_text(angle=90))+
+  labs(title=str_c("COVID19 in ", cntry), y=NULL)
+```
+
+### Belgium
+
+```{r Belgium, warning=FALSE}
+cntry <- "Belgium"
+eu_covid %>% filter(Country_Region == cntry) %>% filter(cases>0) %>%
+  ggplot(aes(x=date, y=cases)) +
+  geom_line(aes(color="cases"))+
+  geom_point(aes(color="cases"))+
+  geom_line(aes(y=deaths, color="deaths"))+
+  geom_point(aes(y=deaths, color="deaths"))+
+  geom_line(aes(y=recovered, color="recovered"))+
+  geom_point(aes(y=recovered, color="recovered"))+
+  scale_y_log10()+theme(legend.position="bottom", axis.text.x=element_text(angle=90))+
+  labs(title=str_c("COVID19 in ", cntry), y=NULL)
+```
+
+### Cyprus
+
+```{r Cyprus, warning=FALSE}
+cntry <- "Cyprus"
+eu_covid %>% filter(Country_Region == cntry) %>% filter(cases>0) %>%
+  ggplot(aes(x=date, y=cases)) +
+  geom_line(aes(color="cases"))+
+  geom_point(aes(color="cases"))+
+  geom_line(aes(y=deaths, color="deaths"))+
+  geom_point(aes(y=deaths, color="deaths"))+
+  geom_line(aes(y=recovered, color="recovered"))+
+  geom_point(aes(y=recovered, color="recovered"))+
+  scale_y_log10()+theme(legend.position="bottom", axis.text.x=element_text(angle=90))+
+  labs(title=str_c("COVID19 in ", cntry), y=NULL)
+```
+
+### Czechia
+
+```{r Czechia, warning=FALSE}
+cntry <- "Czechia"
+eu_covid %>% filter(Country_Region == cntry) %>% filter(cases>0) %>%
+  ggplot(aes(x=date, y=cases)) +
+  geom_line(aes(color="cases"))+
+  geom_point(aes(color="cases"))+
+  geom_line(aes(y=deaths, color="deaths"))+
+  geom_point(aes(y=deaths, color="deaths"))+
+  geom_line(aes(y=recovered, color="recovered"))+
+  geom_point(aes(y=recovered, color="recovered"))+
+  scale_y_log10()+theme(legend.position="bottom", axis.text.x=element_text(angle=90))+
+  labs(title=str_c("COVID19 in ", cntry), y=NULL)
+```
+
+### France
+I included territories such as French Guiana within this data, but it would be better to put them in their own graph.
+```{r France, warning=FALSE}
+cntry <- "France"
+eu_covid %>% filter(Country_Region == cntry) %>% filter(cases>0) %>% group_by("Country_Region", date) %>% summarize(cases = sum(cases), deaths = sum(deaths), recovered = sum(recovered)) %>%
+  ggplot(aes(x=date, y=cases)) +
+  geom_line(aes(color="cases"))+
+  geom_point(aes(color="cases"))+
+  geom_line(aes(y=deaths, color="deaths"))+
+  geom_point(aes(y=deaths, color="deaths"))+
+  geom_line(aes(y=recovered, color="recovered"))+
+  geom_point(aes(y=recovered, color="recovered"))+
+  scale_y_log10()+theme(legend.position="bottom", axis.text.x=element_text(angle=90))+
+  labs(title=str_c("COVID19 in ", cntry), y=NULL)
+```
+
+### Greece
+
+```{r Greece, warning=FALSE}
+cntry <- "Greece"
+eu_covid %>% filter(Country_Region == cntry) %>% filter(cases>0) %>%
+  ggplot(aes(x=date, y=cases)) +
+  geom_line(aes(color="cases"))+
+  geom_point(aes(color="cases"))+
+  geom_line(aes(y=deaths, color="deaths"))+
+  geom_point(aes(y=deaths, color="deaths"))+
+  geom_line(aes(y=recovered, color="recovered"))+
+  geom_point(aes(y=recovered, color="recovered"))+
+  scale_y_log10()+theme(legend.position="bottom", axis.text.x=element_text(angle=90))+
+  labs(title=str_c("COVID19 in ", cntry), y=NULL)
+```
+
+### Hungary
+
+```{r Hungary, warning=FALSE}
+cntry <- "Hungary"
+eu_covid %>% filter(Country_Region == cntry) %>% filter(cases>0) %>%
+  ggplot(aes(x=date, y=cases)) +
+  geom_line(aes(color="cases"))+
+  geom_point(aes(color="cases"))+
+  geom_line(aes(y=deaths, color="deaths"))+
+  geom_point(aes(y=deaths, color="deaths"))+
+  geom_line(aes(y=recovered, color="recovered"))+
+  geom_point(aes(y=recovered, color="recovered"))+
+  scale_y_log10()+theme(legend.position="bottom", axis.text.x=element_text(angle=90))+
+  labs(title=str_c("COVID19 in ", cntry), y=NULL)
+```
+
+### Ireland
+
+```{r Ireland, warning=FALSE}
+cntry <- "Ireland"
+eu_covid %>% filter(Country_Region == cntry) %>% filter(cases>0) %>%
+  ggplot(aes(x=date, y=cases)) +
+  geom_line(aes(color="cases"))+
+  geom_point(aes(color="cases"))+
+  geom_line(aes(y=deaths, color="deaths"))+
+  geom_point(aes(y=deaths, color="deaths"))+
+  geom_line(aes(y=recovered, color="recovered"))+
+  geom_point(aes(y=recovered, color="recovered"))+
+  scale_y_log10()+theme(legend.position="bottom", axis.text.x=element_text(angle=90))+
+  labs(title=str_c("COVID19 in ", cntry), y=NULL)
+```
+
+### Italy
+
+```{r Italy, warning=FALSE}
+cntry <- "Italy"
+eu_covid %>% filter(Country_Region == cntry) %>% filter(cases>0) %>%
+  ggplot(aes(x=date, y=cases)) +
+  geom_line(aes(color="cases"))+
+  geom_point(aes(color="cases"))+
+  geom_line(aes(y=deaths, color="deaths"))+
+  geom_point(aes(y=deaths, color="deaths"))+
+  geom_line(aes(y=recovered, color="recovered"))+
+  geom_point(aes(y=recovered, color="recovered"))+
+  scale_y_log10()+theme(legend.position="bottom", axis.text.x=element_text(angle=90))+
+  labs(title=str_c("COVID19 in ", cntry), y=NULL)
+```
+
+### Lithuania
+
+```{r Lithuania, warning=FALSE}
+cntry <- "Lithuania"
+eu_covid %>% filter(Country_Region == cntry) %>% filter(cases>0) %>%
+  ggplot(aes(x=date, y=cases)) +
+  geom_line(aes(color="cases"))+
+  geom_point(aes(color="cases"))+
+  geom_line(aes(y=deaths, color="deaths"))+
+  geom_point(aes(y=deaths, color="deaths"))+
+  geom_line(aes(y=recovered, color="recovered"))+
+  geom_point(aes(y=recovered, color="recovered"))+
+  scale_y_log10()+theme(legend.position="bottom", axis.text.x=element_text(angle=90))+
+  labs(title=str_c("COVID19 in ", cntry), y=NULL)
+```
+
+### Luxembourg
+
+```{r Luxembourg, warning=FALSE}
+cntry <- "Luxembourg"
+eu_covid %>% filter(Country_Region == cntry) %>% filter(cases>0) %>%
+  ggplot(aes(x=date, y=cases)) +
+  geom_line(aes(color="cases"))+
+  geom_point(aes(color="cases"))+
+  geom_line(aes(y=deaths, color="deaths"))+
+  geom_point(aes(y=deaths, color="deaths"))+
+  geom_line(aes(y=recovered, color="recovered"))+
+  geom_point(aes(y=recovered, color="recovered"))+
+  scale_y_log10()+theme(legend.position="bottom", axis.text.x=element_text(angle=90))+
+  labs(title=str_c("COVID19 in ", cntry), y=NULL)
+```
+
+### Poland
+
+```{r Poland, warning=FALSE}
+cntry <- "Poland"
+eu_covid %>% filter(Country_Region == cntry) %>% filter(cases>0) %>%
+  ggplot(aes(x=date, y=cases)) +
+  geom_line(aes(color="cases"))+
+  geom_point(aes(color="cases"))+
+  geom_line(aes(y=deaths, color="deaths"))+
+  geom_point(aes(y=deaths, color="deaths"))+
+  geom_line(aes(y=recovered, color="recovered"))+
+  geom_point(aes(y=recovered, color="recovered"))+
+  scale_y_log10()+theme(legend.position="bottom", axis.text.x=element_text(angle=90))+
+  labs(title=str_c("COVID19 in ", cntry), y=NULL)
+```
+
+### Portugal
+
+```{r Portugal, warning=FALSE}
+cntry <- "Portugal"
+eu_covid %>% filter(Country_Region == cntry) %>% filter(cases>0) %>%
+  ggplot(aes(x=date, y=cases)) +
+  geom_line(aes(color="cases"))+
+  geom_point(aes(color="cases"))+
+  geom_line(aes(y=deaths, color="deaths"))+
+  geom_point(aes(y=deaths, color="deaths"))+
+  geom_line(aes(y=recovered, color="recovered"))+
+  geom_point(aes(y=recovered, color="recovered"))+
+  scale_y_log10()+theme(legend.position="bottom", axis.text.x=element_text(angle=90))+
+  labs(title=str_c("COVID19 in ", cntry), y=NULL)
+```
+
+### Slovakia
+
+```{r Slovakia, warning=FALSE}
+cntry <- "Slovakia"
+eu_covid %>% filter(Country_Region == cntry) %>% filter(cases>0) %>%
+  ggplot(aes(x=date, y=cases)) +
+  geom_line(aes(color="cases"))+
+  geom_point(aes(color="cases"))+
+  geom_line(aes(y=deaths, color="deaths"))+
+  geom_point(aes(y=deaths, color="deaths"))+
+  geom_line(aes(y=recovered, color="recovered"))+
+  geom_point(aes(y=recovered, color="recovered"))+
+  scale_y_log10()+theme(legend.position="bottom", axis.text.x=element_text(angle=90))+
+  labs(title=str_c("COVID19 in ", cntry), y=NULL)
+```
+
+### Slovenia
+
+```{r Slovenia, warning=FALSE}
+cntry <- "Slovenia"
+eu_covid %>% filter(Country_Region == cntry) %>% filter(cases>0) %>%
+  ggplot(aes(x=date, y=cases)) +
+  geom_line(aes(color="cases"))+
+  geom_point(aes(color="cases"))+
+  geom_line(aes(y=deaths, color="deaths"))+
+  geom_point(aes(y=deaths, color="deaths"))+
+  geom_line(aes(y=recovered, color="recovered"))+
+  geom_point(aes(y=recovered, color="recovered"))+
+  scale_y_log10()+theme(legend.position="bottom", axis.text.x=element_text(angle=90))+
+  labs(title=str_c("COVID19 in ", cntry), y=NULL)
+```
+
+### Spain 
+
+```{r Spain, warning=FALSE}
+cntry <- "Spain"
+eu_covid %>% filter(Country_Region == cntry) %>% filter(cases>0) %>%
+  ggplot(aes(x=date, y=cases)) +
+  geom_line(aes(color="cases"))+
+  geom_point(aes(color="cases"))+
+  geom_line(aes(y=deaths, color="deaths"))+
+  geom_point(aes(y=deaths, color="deaths"))+
+  geom_line(aes(y=recovered, color="recovered"))+
+  geom_point(aes(y=recovered, color="recovered"))+
+  scale_y_log10()+theme(legend.position="bottom", axis.text.x=element_text(angle=90))+
+  labs(title=str_c("COVID19 in ", cntry), y=NULL)
+```
+
+### United Kingdom 
+
+```{r United Kingdom, warning=FALSE}
+cntry <- "United Kingdom"
+eu_covid %>% filter(Country_Region == cntry) %>% filter(cases>0) %>% group_by(Country_Region, date) %>% summarize(recovered = sum(recovered), deaths = sum(deaths), cases=sum(cases)) %>%
+  ggplot(aes(x=date, y=cases)) +
+  geom_line(aes(color="cases"))+
+  geom_point(aes(color="cases"))+
+  geom_line(aes(y=deaths, color="deaths"))+
+  geom_point(aes(y=deaths, color="deaths"))+
+  geom_line(aes(y=recovered, color="recovered"))+
+  geom_point(aes(y=recovered, color="recovered"))+
+  scale_y_log10()+theme(legend.position="bottom", axis.text.x=element_text(angle=90))+
+  labs(title=str_c("COVID19 in ", cntry), y=NULL)
+```
+
+## {-}
+
+```{r EUChange, warning=FALSE}
+EU_cntries_ttl<- EU_cntries_ttl  %>% mutate(new_recovered = recovered - lag(recovered), new_cases=cases-lag(cases), new_deaths = deaths - lag(deaths)) 
+EU_cntries_ttl %>% 
+  ggplot(aes(x=date, y=new_cases)) +
+  geom_line(aes(color="new_cases"))+
+  geom_point(aes(color="new_cases"))+
+  geom_line(aes(y=new_deaths, color="new_deaths"))+
+  geom_point(aes(y=new_deaths, color="new_deaths"))+
+  geom_line(aes(y=new_recovered, color="new_recovered"))+
+  geom_point(aes(y=new_recovered, color="new_recovered"))+
+  scale_y_log10()+theme(legend.position="bottom", axis.text.x=element_text(angle=90))+
+  labs(title=str_c("New COVID19 cases/deaths during lockdown in all of EU"), y=NULL)
+```
+
+
+## Lockdown Visualizations with new cases/deaths {.tabset}
+Here we can see the curves the daily change of the cases, deaths and recoveries within individual countries. The graph will only show the data of cases, deaths and recoveries during that countries lockdown. The aim of these lockdowns is to slow down the spread of the virus as to not overwhelm the healthcare system. I will talk about the conclusions of this later in this document. 
+
+
+### Austria
+Austria is a clear example of a country that had to go through multiple stay at home orders due to the clear increase of cases and deaths between the two precautionary decisions. But, it shows a fall in cases, deaths, and recoveries. 
+```{r Austrialockdown, warning=FALSE}
+cntry <- "Austria"
+lockdown <- eu %>% filter(Country == cntry)
+eu_covid %>% filter(Country_Region == cntry) %>% mutate(new_recovered = recovered - lag(recovered), new_cases=cases-lag(cases), new_deaths = deaths - lag(deaths)) %>% filter(date >= lockdown$date_start & date <= lockdown$date_end) %>%
+  ggplot(aes(x=date, y=new_cases)) +
+  geom_line(aes(color="new_cases"))+
+  geom_point(aes(color="new_cases"))+
+  geom_line(aes(y=new_deaths, color="new_deaths"))+
+  geom_point(aes(y=new_deaths, color="new_deaths"))+
+  geom_line(aes(y=new_recovered, color="new_recovered"))+
+  geom_point(aes(y=new_recovered, color="new_recovered"))+
+  scale_y_log10()+theme(legend.position="bottom", axis.text.x=element_text(angle=90))+
+  labs(title=str_c("New COVID19 cases/deaths during lockdown in ", cntry), y=NULL)
+```
+
+### Belgium
+
+```{r Belgiumlockdown, warning=FALSE}
+cntry <- "Belgium"
+lockdown <- eu %>% filter(Country == cntry)
+eu_covid %>% filter(Country_Region == cntry) %>% mutate(new_recovered = recovered - lag(recovered),new_cases=cases-lag(cases), new_deaths = deaths - lag(deaths)) %>% filter(date >= lockdown$date_start & date <= lockdown$date_end) %>%
+  ggplot(aes(x=date, y=new_cases)) +
+  geom_line(aes(color="new_cases"))+
+  geom_point(aes(color="new_cases"))+
+  geom_line(aes(y=new_deaths, color="new_deaths"))+
+  geom_point(aes(y=new_deaths, color="new_deaths"))+
+  geom_line(aes(y=new_recovered, color="new_recovered"))+
+  geom_point(aes(y=new_recovered, color="new_recovered"))+
+  scale_y_log10()+theme(legend.position="bottom", axis.text.x=element_text(angle=90))+
+  labs(title=str_c("New COVID19 cases/deaths during lockdown in ", cntry), y=NULL)
+```
+
+### Cyprus
+
+```{r Cypruslockdown, warning=FALSE}
+cntry <- "Cyprus"
+lockdown <- eu %>% filter(Country == cntry)
+eu_covid %>% filter(Country_Region == cntry) %>% mutate(new_recovered = recovered - lag(recovered),new_cases=cases-lag(cases), new_deaths = deaths - lag(deaths)) %>% filter(date >= lockdown$date_start & date <= lockdown$date_end) %>%
+  ggplot(aes(x=date, y=new_cases)) +
+  geom_line(aes(color="new_cases"))+
+  geom_point(aes(color="new_cases"))+
+  geom_line(aes(y=new_deaths, color="new_deaths"))+
+  geom_point(aes(y=new_deaths, color="new_deaths"))+
+  geom_line(aes(y=new_recovered, color="new_recovered"))+
+  geom_point(aes(y=new_recovered, color="new_recovered"))+
+  scale_y_log10()+theme(legend.position="bottom", axis.text.x=element_text(angle=90))+
+  labs(title=str_c("New COVID19 cases/deaths during lockdown in ", cntry), y=NULL)
+```
+
+### Czechia
+
+```{r Czechialockdown, warning=FALSE}
+cntry <- "Czechia"
+lockdown <- eu %>% filter(Country == cntry)
+eu_covid %>% filter(Country_Region == cntry) %>% mutate(new_recovered = recovered - lag(recovered),new_cases=cases-lag(cases), new_deaths = deaths - lag(deaths)) %>% filter(date >= lockdown$date_start & date <= lockdown$date_end) %>%
+  ggplot(aes(x=date, y=new_cases)) +
+  geom_line(aes(color="new_cases"))+
+  geom_point(aes(color="new_cases"))+
+  geom_line(aes(y=new_deaths, color="new_deaths"))+
+  geom_point(aes(y=new_deaths, color="new_deaths"))+
+  geom_line(aes(y=new_recovered, color="new_recovered"))+
+  geom_point(aes(y=new_recovered, color="new_recovered"))+
+  scale_y_log10()+theme(legend.position="bottom", axis.text.x=element_text(angle=90))+
+  labs(title=str_c("New COVID19 cases/deaths during lockdown in ", cntry), y=NULL)
+```
+
+### France
+I included territories such as French Guiana within this data, but it would be better to put them in their own graph.
+
+```{r Francelockdown, warning=FALSE}
+cntry <- "France"
+lockdown <- eu %>% filter(Country == cntry)
+eu_covid %>% filter(Country_Region == cntry) %>% mutate(new_recovered = recovered - lag(recovered), new_cases=cases-lag(cases), new_deaths = deaths - lag(deaths)) %>% group_by("Country_Region", date) %>% summarize(recovered = sum(recovered), new_recovered = sum(new_recovered), cases = sum(cases), deaths = sum(deaths), new_cases=sum(new_cases), new_deaths=sum(new_deaths)) %>%filter(date >= lockdown$date_start & date <= lockdown$date_end) %>%
+  ggplot(aes(x=date, y=new_cases)) +
+  geom_line(aes(color="new_cases"))+
+  geom_point(aes(color="new_cases"))+
+  geom_line(aes(y=new_deaths, color="new_deaths"))+
+  geom_point(aes(y=new_deaths, color="new_deaths"))+
+  geom_line(aes(y=new_recovered, color="new_recovered"))+
+  geom_point(aes(y=new_recovered, color="new_recovered"))+
+  scale_y_log10()+theme(legend.position="bottom", axis.text.x=element_text(angle=90))+
+  labs(title=str_c("New COVID19 cases/deaths during lockdown in ", cntry), y=NULL)
+```
+
+### Greece
+
+```{r Greecelockdown, warning=FALSE}
+cntry <- "Greece"
+lockdown <- eu %>% filter(Country == cntry)
+eu_covid %>% filter(Country_Region == cntry) %>% mutate(new_recovered = recovered - lag(recovered),new_cases=cases-lag(cases), new_deaths = deaths - lag(deaths)) %>% filter(date >= lockdown$date_start & date <= lockdown$date_end) %>%
+  ggplot(aes(x=date, y=new_cases)) +
+  geom_line(aes(color="new_cases"))+
+  geom_point(aes(color="new_cases"))+
+  geom_line(aes(y=new_deaths, color="new_deaths"))+
+  geom_point(aes(y=new_deaths, color="new_deaths"))+
+  geom_line(aes(y=new_recovered, color="new_recovered"))+
+  geom_point(aes(y=new_recovered, color="new_recovered"))+
+  scale_y_log10()+theme(legend.position="bottom", axis.text.x=element_text(angle=90))+
+  labs(title=str_c("New COVID19 cases/deaths during lockdown in ", cntry), y=NULL)
+```
+
+### Hungary
+
+```{r Hungarylockdown, warning=FALSE}
+cntry <- "Hungary"
+lockdown <- eu %>% filter(Country == cntry)
+eu_covid %>% filter(Country_Region == cntry) %>% mutate(new_recovered = recovered - lag(recovered),new_cases=cases-lag(cases), new_deaths = deaths - lag(deaths)) %>% filter(date >= lockdown$date_start & date <= lockdown$date_end) %>%
+  ggplot(aes(x=date, y=new_cases)) +
+  geom_line(aes(color="new_cases"))+
+  geom_point(aes(color="new_cases"))+
+  geom_line(aes(y=new_deaths, color="new_deaths"))+
+  geom_point(aes(y=new_deaths, color="new_deaths"))+
+  geom_line(aes(y=new_recovered, color="new_recovered"))+
+  geom_point(aes(y=new_recovered, color="new_recovered"))+
+  scale_y_log10()+theme(legend.position="bottom", axis.text.x=element_text(angle=90))+
+  labs(title=str_c("New COVID19 cases/deaths during lockdown in ", cntry), y=NULL)
+```
+
+### Ireland
+
+```{r Irelandlockdown, warning=FALSE}
+cntry <- "Ireland"
+lockdown <- eu %>% filter(Country == cntry)
+eu_covid %>% filter(Country_Region == cntry) %>% mutate(new_recovered = recovered - lag(recovered),new_cases=cases-lag(cases), new_deaths = deaths - lag(deaths)) %>% filter(date >= lockdown$date_start & date <= lockdown$date_end) %>%
+  ggplot(aes(x=date, y=new_cases)) +
+  geom_line(aes(color="new_cases"))+
+  geom_point(aes(color="new_cases"))+
+  geom_line(aes(y=new_deaths, color="new_deaths"))+
+  geom_point(aes(y=new_deaths, color="new_deaths"))+
+  geom_line(aes(y=new_recovered, color="new_recovered"))+
+  geom_point(aes(y=new_recovered, color="new_recovered"))+
+  scale_y_log10()+theme(legend.position="bottom", axis.text.x=element_text(angle=90))+
+  labs(title=str_c("New COVID19 cases/deaths during lockdown in ", cntry), y=NULL)
+```
+
+### Italy
+
+```{r Italylockdown, warning=FALSE}
+cntry <- "Italy"
+lockdown <- eu %>% filter(Country == cntry)
+eu_covid %>% filter(Country_Region == cntry) %>% mutate(new_recovered = recovered - lag(recovered),new_cases=cases-lag(cases), new_deaths = deaths - lag(deaths)) %>% filter(date >= lockdown$date_start & date <= lockdown$date_end) %>%
+  ggplot(aes(x=date, y=new_cases)) +
+  geom_line(aes(color="new_cases"))+
+  geom_point(aes(color="new_cases"))+
+  geom_line(aes(y=new_deaths, color="new_deaths"))+
+  geom_point(aes(y=new_deaths, color="new_deaths"))+
+  geom_line(aes(y=new_recovered, color="new_recovered"))+
+  geom_point(aes(y=new_recovered, color="new_recovered"))+
+  scale_y_log10()+theme(legend.position="bottom", axis.text.x=element_text(angle=90))+
+  labs(title=str_c("New COVID19 cases/deaths during lockdown in ", cntry), y=NULL)
+```
+
+### Lithuania
+
+```{r Lithuanialockdown, warning=FALSE}
+cntry <- "Lithuania"
+lockdown <- eu %>% filter(Country == cntry)
+eu_covid %>% filter(Country_Region == cntry) %>% mutate(new_recovered = recovered - lag(recovered),new_cases=cases-lag(cases), new_deaths = deaths - lag(deaths)) %>% filter(date >= lockdown$date_start & date <= lockdown$date_end) %>%
+  ggplot(aes(x=date, y=new_cases)) +
+  geom_line(aes(color="new_cases"))+
+  geom_point(aes(color="new_cases"))+
+  geom_line(aes(y=new_deaths, color="new_deaths"))+
+  geom_point(aes(y=new_deaths, color="new_deaths"))+
+  geom_line(aes(y=new_recovered, color="new_recovered"))+
+  geom_point(aes(y=new_recovered, color="new_recovered"))+
+  scale_y_log10()+theme(legend.position="bottom", axis.text.x=element_text(angle=90))+
+  labs(title=str_c("New COVID19 cases/deaths during lockdown in ", cntry), y=NULL)
+```
+
+### Luxembourg
+
+```{r Luxembourglockdown, warning=FALSE}
+cntry <- "Luxembourg"
+lockdown <- eu %>% filter(Country == cntry)
+eu_covid %>% filter(Country_Region == cntry) %>% mutate(new_recovered = recovered - lag(recovered),new_cases=cases-lag(cases), new_deaths = deaths - lag(deaths)) %>% filter(date >= lockdown$date_start & date <= lockdown$date_end) %>%
+  ggplot(aes(x=date, y=new_cases)) +
+  geom_line(aes(color="new_cases"))+
+  geom_point(aes(color="new_cases"))+
+  geom_line(aes(y=new_deaths, color="new_deaths"))+
+  geom_point(aes(y=new_deaths, color="new_deaths"))+
+  geom_line(aes(y=new_recovered, color="new_recovered"))+
+  geom_point(aes(y=new_recovered, color="new_recovered"))+
+  scale_y_log10()+theme(legend.position="bottom", axis.text.x=element_text(angle=90))+
+  labs(title=str_c("New COVID19 cases/deaths during lockdown in ", cntry), y=NULL)
+```
+
+### Poland
+
+```{r Polandlockdown, warning=FALSE}
+cntry <- "Poland"
+lockdown <- eu %>% filter(Country == cntry)
+eu_covid %>% filter(Country_Region == cntry) %>% mutate(new_recovered = recovered - lag(recovered),new_cases=cases-lag(cases), new_deaths = deaths - lag(deaths)) %>% filter(date >= lockdown$date_start & date <= lockdown$date_end) %>%
+  ggplot(aes(x=date, y=new_cases)) +
+  geom_line(aes(color="new_cases"))+
+  geom_point(aes(color="new_cases"))+
+  geom_line(aes(y=new_deaths, color="new_deaths"))+
+  geom_point(aes(y=new_deaths, color="new_deaths"))+
+  geom_line(aes(y=new_recovered, color="new_recovered"))+
+  geom_point(aes(y=new_recovered, color="new_recovered"))+
+  scale_y_log10()+theme(legend.position="bottom", axis.text.x=element_text(angle=90))+
+  labs(title=str_c("New COVID19 cases/deaths during lockdown in ", cntry), y=NULL)
+```
+
+### Portugal
+
+```{r Portugallockdown, warning=FALSE}
+cntry <- "Portugal"
+lockdown <- eu %>% filter(Country == cntry)
+eu_covid %>% filter(Country_Region == cntry) %>% mutate(new_recovered = recovered - lag(recovered),new_cases=cases-lag(cases), new_deaths = deaths - lag(deaths)) %>% filter(date >= lockdown$date_start & date <= lockdown$date_end) %>%
+  ggplot(aes(x=date, y=new_cases)) +
+  geom_line(aes(color="new_cases"))+
+  geom_point(aes(color="new_cases"))+
+  geom_line(aes(y=new_deaths, color="new_deaths"))+
+  geom_point(aes(y=new_deaths, color="new_deaths"))+
+  geom_line(aes(y=new_recovered, color="new_recovered"))+
+  geom_point(aes(y=new_recovered, color="new_recovered"))+
+  scale_y_log10()+theme(legend.position="bottom", axis.text.x=element_text(angle=90))+
+  labs(title=str_c("New COVID19 cases/deaths during lockdown in ", cntry), y=NULL)
+```
+
+### Slovakia
+Slovakia stopped reporting new recoveries to the ECDC around Feb 12th of 2021.
+```{r Slovakialockdown, warning=FALSE}
+cntry <- "Slovakia"
+lockdown <- eu %>% filter(Country == cntry)
+eu_covid %>% filter(Country_Region == cntry) %>% mutate(new_recovered = recovered - lag(recovered),new_cases=cases-lag(cases), new_deaths = deaths - lag(deaths)) %>% filter(date >= lockdown$date_start & date <= lockdown$date_end) %>%
+  ggplot(aes(x=date, y=new_cases)) +
+  geom_line(aes(color="new_cases"))+
+  geom_point(aes(color="new_cases"))+
+  geom_line(aes(y=new_deaths, color="new_deaths"))+
+  geom_point(aes(y=new_deaths, color="new_deaths"))+
+  geom_line(aes(y=new_recovered, color="new_recovered"))+
+  geom_point(aes(y=new_recovered, color="new_recovered"))+
+  scale_y_log10()+theme(legend.position="bottom", axis.text.x=element_text(angle=90))+
+  labs(title=str_c("New COVID19 cases/deaths during lockdown in ", cntry), y=NULL)
+```
+
+### Slovenia
+
+```{r Slovenialockdown, warning=FALSE}
+cntry <- "Slovenia"
+lockdown <- eu %>% filter(Country == cntry)
+eu_covid %>% filter(Country_Region == cntry) %>% mutate(new_recovered = recovered - lag(recovered),new_cases=cases-lag(cases), new_deaths = deaths - lag(deaths)) %>% filter(date >= lockdown$date_start & date <= lockdown$date_end) %>%
+  ggplot(aes(x=date, y=new_cases)) +
+  geom_line(aes(color="new_cases"))+
+  geom_point(aes(color="new_cases"))+
+  geom_line(aes(y=new_deaths, color="new_deaths"))+
+  geom_point(aes(y=new_deaths, color="new_deaths"))+
+  geom_line(aes(y=new_recovered, color="new_recovered"))+
+  geom_point(aes(y=new_recovered, color="new_recovered"))+
+  scale_y_log10()+theme(legend.position="bottom", axis.text.x=element_text(angle=90))+
+  labs(title=str_c("New COVID19 cases/deaths during lockdown in ", cntry), y=NULL)
+```
+
+### Spain 
+
+```{r Spainlockdown, warning=FALSE}
+cntry <- "Spain"
+lockdown <- eu %>% filter(Country == cntry)
+eu_covid %>% filter(Country_Region == cntry) %>% mutate(new_recovered = recovered - lag(recovered),new_cases=cases-lag(cases), new_deaths = deaths - lag(deaths)) %>% filter(date >= lockdown$date_start & date <= lockdown$date_end) %>%
+  ggplot(aes(x=date, y=new_cases)) +
+  geom_line(aes(color="new_cases"))+
+  geom_point(aes(color="new_cases"))+
+  geom_line(aes(y=new_deaths, color="new_deaths"))+
+  geom_point(aes(y=new_deaths, color="new_deaths"))+
+  geom_line(aes(y=new_recovered, color="new_recovered"))+
+  geom_point(aes(y=new_recovered, color="new_recovered"))+
+  scale_y_log10()+theme(legend.position="bottom", axis.text.x=element_text(angle=90))+
+  labs(title=str_c("New COVID19 cases/deaths during lockdown in ", cntry), y=NULL)
+```
+
+### United Kingdom 
+
+```{r United Kingdom lockdown, warning=FALSE}
+cntry <- "United Kingdom"
+lockdown <- eu %>% filter(Country == cntry)
+eu_covid %>% filter(Country_Region == cntry) %>% mutate(new_recovered = recovered - lag(recovered), new_cases=cases-lag(cases), new_deaths = deaths - lag(deaths)) %>% group_by(Country_Region, date) %>% summarize(recovered = sum(recovered), deaths = sum(deaths), cases=sum(cases), new_cases=sum(new_cases), new_deaths=sum(new_deaths), new_recovered = sum(new_recovered)) %>% filter(date >= lockdown$date_start & date <= lockdown$date_end) %>%
+  ggplot(aes(x=date, y=new_cases)) +
+  geom_line(aes(color="new_cases"))+
+  geom_point(aes(color="new_cases"))+
+  geom_line(aes(y=new_deaths, color="new_deaths"))+
+  geom_point(aes(y=new_deaths, color="new_deaths"))+
+  geom_line(aes(y=new_recovered, color="new_recovered"))+
+  geom_point(aes(y=new_recovered, color="new_recovered"))+
+  scale_y_log10()+theme(legend.position="bottom", axis.text.x=element_text(angle=90))+
+  labs(title=str_c("New COVID19 cases/deaths during lockdown in ", cntry), y=NULL)
+```
+
+## {-}
+
+Some countries fail to report their daily newly recovered, this might be the fault of many systems that need to be connected or a failure by my code to see that change. 
+
+
+## Modelling
+
+I decided to run the same model we did in class, as I am a beginner within modelling of data. First, we need to calculate the cases/thousand, and deaths/thousand
+```{r perthou}
+EUTotal <- eu_covid %>% group_by(Country_Region) %>%
+  summarize(deaths = max(deaths),
+            cases = max(cases),
+            population = max(Population),
+            cases_per_thou = 1000*cases/population,
+            deaths_per_thou = 1000*deaths/population) 
+EUTotal
+```
+
+Next, we run the linear model on the data to find the correlation between the cases and deaths
+```{r modelling}
+mod <- lm(deaths_per_thou ~ cases_per_thou, data=EUTotal)
+summary(mod)
+EUTotal %>% mutate(pred=predict(mod))
+EUTotal_w_pred <- EUTotal %>% mutate(pred=predict(mod))
+EUTotal_w_pred %>% ggplot() +
+  geom_point(aes(x=cases_per_thou, y = deaths_per_thou), color="blue") +
+  geom_point(aes(x=cases_per_thou, y = pred), color="red")
+```
+
+## Bias
+I believe that the bias comes from the underlying infrastructure of the healthcare systems of each country. This depends highly on reporting of the cases, deaths and recoveries, but not all recoveries are reported, not all cases are reported, and we can have false reporting when it comes to deaths. My personal bias comes when evaluating the countries and removing rows to make my graphs seem more clean.This data does not take into consideration the immunization levels of each country, as that could be releveant to the steady decline of the infection rate. There are many countries that are not on the list that took precautions, and this is may be a bias by the ECDC. But, it removes the study of the effects of Stay at home orders within those countries. 
+
+## Conclusion
+
+In conclusion, COVID-19 has ravaged many countries but as a society the effects of us staying at home and flattening curve can obviously be seen in my graphs above. Countries such as Italy had the deaths in the country dip during the lockdown process, but this can also be attributed to learning how to deal with the virus as they were hit harder than any country early on in the pandemic. Many countries fail to provide data for newly recovered people, for example: Greece seems to fail to report any new recoveries from Jan 2021 - Apr 2021, and this is the failure of the connection between federal government systems and EU systems. 
+
+I believe that for this assignment (and course in general) there was a clear lack in teaching of modeling the data to find correlation between data. This would have helped me in further investigating the data. My model failed to find any correlation between the two variables, and needs more information to find a clear indication of the rise in cases/deaths. 
